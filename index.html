@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV一括置換ツール</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #555;
+            margin-bottom: 30px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #444;
+        }
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* paddingを含めてwidth 100%にする */
+            min-height: 150px;
+            font-size: 1em;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+            display: block;
+        }
+        .file-label {
+            display: inline-block;
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: background-color 0.2s ease;
+        }
+        .file-label:hover {
+            background-color: #0056b3;
+        }
+        input[type="file"]#csvFile {
+             /* 見た目はlabelで操作するので隠す */
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0,0,0,0);
+            border: 0;
+        }
+        #fileName {
+            margin-left: 10px;
+            font-style: italic;
+            color: #555;
+        }
+        .options {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .options input[type="checkbox"] {
+            margin-right: 8px;
+            width: 18px; /* チェックボックスのサイズ調整 */
+            height: 18px;
+            cursor: pointer;
+        }
+        .options label {
+            margin-bottom: 0; /* labelのデフォルトマージンを打ち消し */
+            font-weight: normal; /* 通常の太さに */
+            cursor: pointer;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 12px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            margin-bottom: 20px;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #statusMessage {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status-info {
+            background-color: #e2e3e5;
+            color: #383d41;
+            border: 1px solid #d6d8db;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CSV一括置換ツール</h1>
+
+        <label for="inputText">元のテキスト:</label>
+        <textarea id="inputText" placeholder="ここに置換したいテキストを入力してください..."></textarea>
+
+        <label for="csvFile" class="file-label">置換ルールCSVファイルを選択</label>
+        <input type="file" id="csvFile" accept=".csv" aria-describedby="fileHelp">
+        <span id="fileName">選択されていません</span>
+        <small id="fileHelp" style="display: block; margin-bottom: 20px; color: #666;">
+            A列に置換前の文字、B列に置換後の文字を入力したCSVファイル (UTF-8推奨) を選択してください。
+            <br>例:
+            <pre style="background:#eee; padding: 5px; border-radius:3px; margin-top:5px;"><code>古い言葉,新しい言葉
+テキスト,文章
+ウェブ,Web</code></pre>
+             ※複雑なCSV（"カンマ, を含む" フィールドなど）は正しく処理できない場合があります。
+        </small>
+
+
+        <div class="options">
+            <input type="checkbox" id="useRegex">
+            <label for="useRegex">正規表現を使用する (A列)</label>
+        </div>
+
+        <button id="replaceButton">一括置換を実行</button>
+
+        <label for="outputText">置換後のテキスト:</label>
+        <textarea id="outputText" readonly placeholder="ここに置換結果が表示されます..."></textarea>
+
+        <div id="statusMessage"></div>
+    </div>
+
+    <script>
+        const inputText = document.getElementById('inputText');
+        const csvFileInput = document.getElementById('csvFile');
+        const fileNameDisplay = document.getElementById('fileName');
+        const useRegexCheckbox = document.getElementById('useRegex');
+        const replaceButton = document.getElementById('replaceButton');
+        const outputText = document.getElementById('outputText');
+        const statusMessage = document.getElementById('statusMessage');
+
+        let replacementRules = []; // [[find1, replace1], [find2, replace2], ...]
+
+        // ファイル選択時の処理
+        csvFileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                fileNameDisplay.textContent = file.name;
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    try {
+                        const csvContent = e.target.result;
+                        replacementRules = parseCsv(csvContent);
+                        if (replacementRules.length > 0) {
+                             setStatus('CSVファイルを読み込みました。置換ルール数: ' + replacementRules.length, 'info');
+                             replaceButton.disabled = false; // 置換ボタンを有効化
+                        } else {
+                             setStatus('CSVファイルが空か、有効なルールがありません。', 'error');
+                             replaceButton.disabled = true;
+                        }
+                    } catch (error) {
+                        setStatus(`CSVファイルの読み込みまたは解析中にエラーが発生しました: ${error.message}`, 'error');
+                        replacementRules = [];
+                        replaceButton.disabled = true;
+                    }
+                };
+
+                reader.onerror = () => {
+                    setStatus('ファイルの読み取りに失敗しました。', 'error');
+                    replacementRules = [];
+                    fileNameDisplay.textContent = '選択されていません';
+                    replaceButton.disabled = true;
+                };
+
+                // UTF-8として読み込むことを推奨
+                reader.readAsText(file, 'UTF-8');
+                 setStatus('CSVファイルを読み込み中...', 'info');
+                 replaceButton.disabled = true; // 読み込み中は無効化
+
+            } else {
+                fileNameDisplay.textContent = '選択されていません';
+                replacementRules = [];
+                setStatus(''); // メッセージクリア
+                replaceButton.disabled = true; // ファイルが選択されていなければ無効
+            }
+        });
+
+        // CSV解析関数 (簡易版)
+        function parseCsv(csvText) {
+            const lines = csvText.split(/\r?\n/); // 改行コード(\n or \r\n)で分割
+            const rules = [];
+            lines.forEach((line, index) => {
+                const trimmedLine = line.trim();
+                if (trimmedLine === '') return; // 空行は無視
+
+                // 最も単純なCSV分割（カンマ区切り）
+                // 注意: フィールド内にカンマが含まれる場合、"で囲むなどの複雑なCSVには対応していません。
+                const columns = trimmedLine.split(',');
+
+                if (columns.length >= 2) {
+                    // A列 (置換前) と B列 (置換後) を取得
+                    const findText = columns[0].trim();
+                    const replaceText = columns[1].trim();
+                     // クォーテーションで囲まれている場合、削除する（簡易的な対応）
+                    const cleanFindText = trimQuotes(findText);
+                    const cleanReplaceText = trimQuotes(replaceText);
+
+                    if (cleanFindText) { // 置換前テキストが空でないこと
+                         rules.push([cleanFindText, cleanReplaceText]);
+                    } else {
+                        console.warn(`CSV ${index + 1} 行目: 置換前の文字列(A列)が空です。スキップします。`);
+                    }
+                } else {
+                     console.warn(`CSV ${index + 1} 行目: 列数が不足しています（最低2列必要）。スキップします。 Line: "${trimmedLine}"`);
+                }
+            });
+             if (rules.length === 0 && lines.some(line => line.trim() !== '')) {
+                throw new Error('CSVファイルに有効な置換ルールが見つかりませんでした。A列,B列の形式を確認してください。');
+            }
+            return rules;
+        }
+
+         // 前後のダブルクォートまたはシングルクォートを削除するヘルパー関数
+        function trimQuotes(str) {
+            if (str.length >= 2 && ((str.startsWith('"') && str.endsWith('"')) || (str.startsWith("'") && str.endsWith("'")))) {
+                return str.substring(1, str.length - 1);
+            }
+            return str;
+        }
+
+
+        // 置換実行ボタンの処理
+        replaceButton.addEventListener('click', () => {
+            const text = inputText.value;
+            const useRegex = useRegexCheckbox.checked;
+
+            if (!text) {
+                setStatus('元のテキストが入力されていません。', 'error');
+                return;
+            }
+            if (replacementRules.length === 0) {
+                 setStatus('置換ルールが読み込まれていません。CSVファイルを選択してください。', 'error');
+                 return;
+            }
+
+            setStatus('置換処理を実行中...', 'info');
+            outputText.value = ''; // 結果をクリア
+
+             // 非同期処理に見せかける（重い処理でもUIが固まらないように）
+             setTimeout(() => {
+                try {
+                    let resultText = text;
+                    replacementRules.forEach(([findStr, replaceStr]) => {
+                        if (useRegex) {
+                            try {
+                                // 'g'フラグ（global）をつけて、すべてのマッチ箇所を置換
+                                const regex = new RegExp(findStr, 'g');
+                                resultText = resultText.replace(regex, replaceStr);
+                            } catch (e) {
+                                console.error(`無効な正規表現: "${findStr}". このルールはスキップされます。 Error: ${e.message}`);
+                                // エラーがあっても処理を続行するが、警告は出す
+                                setStatus(`警告: 無効な正規表現 "${findStr}" がスキップされました。`, 'error'); // エラーを一時表示
+                            }
+                        } else {
+                            // 通常の文字列置換 (replaceAll は比較的新しいので注意が必要だが、現代のブラウザならOK)
+                            // 古いブラウザも考慮するなら、split/joinを使うなどの工夫が必要
+                            resultText = resultText.replaceAll(findStr, replaceStr);
+                        }
+                    });
+
+                    outputText.value = resultText;
+                    setStatus('一括置換が完了しました。', 'success');
+                } catch (error) {
+                    setStatus(`置換処理中にエラーが発生しました: ${error.message}`, 'error');
+                    console.error(error);
+                }
+             }, 10); // 10ms 遅延させる
+        });
+
+        // ステータスメッセージ表示関数
+        function setStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.className = ''; // Reset classes
+            if (message) {
+                 statusMessage.classList.add(`status-${type}`);
+            }
+        }
+
+        // 初期状態では置換ボタンを無効化
+        replaceButton.disabled = true;
+        setStatus('CSVファイルを選択してください。');
+
+    </script>
+</body>
+</html>
